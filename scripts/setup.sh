@@ -88,15 +88,7 @@ if ! err=$(cd "$npm_dir" && node -e '
 $err"
 fi
 
-# --- Python（版は .python-version。pyenv・uv・mise などはこのファイルを読む）---
-py=$(command -v python3 || command -v python || command -v py || true)
-[ -n "$py" ] || fail "Python $(cat .python-version) が要る（https://www.python.org/ ）"
-"$py" -m venv .venv
-if [ -x .venv/bin/python ]; then vbin=.venv/bin; else vbin=.venv/Scripts; fi   # Windows は Scripts
-"$vbin/python" -m pip install -q -r requirements.txt
-if [ -n "${CLAUDE_ENV_FILE:-}" ]; then session_env "PATH=\"$PWD/$vbin:\$PATH\""; else todo+=(". $vbin/activate"); fi
-
-next="<push する前の確認コマンド>"
+next="node qa/run.mjs"
 if [ ${#todo[@]} -gt 0 ]; then
   echo "△ 準備はできた。ただし、このシェルで先に次を打つ（打たないと古い Node や別のブラウザで動く）:"
   printf '    %s\n' "${todo[@]}"
