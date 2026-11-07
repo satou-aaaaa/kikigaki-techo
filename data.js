@@ -140,13 +140,18 @@
   const shuffle = (R, arr) => { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const share = (a, b) => (a.g || []).some((g) => (b.g || []).includes(g));
   const ofCat = (cat) => D.filter((x) => x.cat === cat).map((x) => x.id);
+  // あとから足す正体には from（出しはじめる日 YYYY-MM-DD）を付ける。その日より前の問題（今日の5問・上級・選び肢）には混ぜない
+  // （足しても過去の日の問題と、途中の回の選び肢が変わらない。2026-11-07 CodeRabbit）
+  const has = (id) => Object.prototype.hasOwnProperty.call(BY, id);
+  const avail = (x, date) => !x.from || (!!date && x.from <= date);
+  const tagDate = (tag) => { const m = /\|(\d{4}-\d\d-\d\d)/.exec(String(tag)); return m ? m[1] : ""; };
 
   // 1問を作る。tag は「正体の id|種」。同じ tag ならいつも同じ問題（選び肢の4つと並び）
   // まちがいの選び肢は同じ分野から3つ。同じ話の仲間（g）は入れない
   function make(tag) {
-    const [id] = String(tag).split("|"), x = BY[id];
+    const [id] = String(tag).split("|"), x = has(id) ? BY[id] : null, day = tagDate(tag);
     if (!x) return null;
-    const R = rng(seedOf(tag)), pool = shuffle(R, D.filter((y) => y.cat === x.cat && y.id !== x.id && !share(x, y)));
+    const R = rng(seedOf(tag)), pool = shuffle(R, D.filter((y) => y.cat === x.cat && y.id !== x.id && !share(x, y) && avail(y, day)));
     const wrong = [];
     for (const y of pool) { if (wrong.some((w) => share(w, y))) continue; wrong.push(y); if (wrong.length === 3) break; }
     const opts = shuffle(R, [x, ...wrong]).map((y) => y.id);
@@ -155,17 +160,20 @@
 
   // 今日の5問：妖怪・日本の神話・世界の神話から1つずつ（やさしい・ふつう）、あと2つ（ふつう1・むずかしい1、分野は自由）
   // きのうの5問とは重ねない（種の文字が近いと、となりの日で同じ正体が続くことがあった）。
-  // 1日ずつ前の日を見て決めるので、始まりの日（ANCHOR）から順に作って覚えておく
+  // 1日ずつ前の日を見て決めるので、始まりの日（ANCHOR）から順に作って覚えておく。
+  // ANCHOR より前の日（端末の日付がずれているとき）は、逆に次の日を見て決める（となりの日と重ねない）
   function rawDaily(date, avoid) {
     const R = rng(seedOf("day:" + date)), used = avoid.slice();
-    const pick = (f) => { const c = shuffle(R, D.filter((x) => f(x) && !used.includes(x.id))); used.push(c[0].id); return c[0].id; };
+    const pick = (f) => { const c = shuffle(R, D.filter((x) => f(x) && avail(x, date) && !used.includes(x.id))); used.push(c[0].id); return c[0].id; };
     return [pick((x) => x.cat === "y" && x.lv <= 1), pick((x) => x.cat === "j" && x.lv <= 1), pick((x) => x.cat === "w" && x.lv <= 1), pick((x) => x.lv === 1), pick((x) => x.lv === 2)];
   }
   const ANCHOR = "2026-11-01", MEMO = new Map();
   const nextDay = (k) => new Date(Date.parse(k) + 864e5).toISOString().slice(0, 10);
+  const prevDay = (k) => new Date(Date.parse(k) - 864e5).toISOString().slice(0, 10);
   function dailyIds(date) {
-    if (!(date > ANCHOR)) return rawDaily(date, []);
     if (MEMO.has(date)) return MEMO.get(date);
+    if (date === ANCHOR) return rawDaily(ANCHOR, []);
+    if (date < ANCHOR) { let k = ANCHOR, next = rawDaily(ANCHOR, []); while (k > date) { k = prevDay(k); next = MEMO.get(k) || rawDaily(k, next); MEMO.set(k, next); } return next; }
     let k = ANCHOR, prev = rawDaily(ANCHOR, []);
     for (const [d, v] of MEMO) if (d < date && d > k) { k = d; prev = v; }
     while (k < date) { k = nextDay(k); prev = rawDaily(k, prev); MEMO.set(k, prev); }
@@ -175,9 +183,9 @@
   // 上級の3問：むずかしいから、分野を1つずつ（今日の5問と重ねない）
   function hardTags(date) {
     const dd = dailyTags(date).map((t) => t.split("|")[0]), R = rng(seedOf("hard:" + date));
-    return ["y", "j", "w"].map((cat, i) => { const c = shuffle(R, D.filter((x) => x.cat === cat && x.lv === 2 && !dd.includes(x.id))); return `${c[0].id}|${date}:h${i}`; });
+    return ["y", "j", "w"].map((cat, i) => { const c = shuffle(R, D.filter((x) => x.cat === cat && x.lv === 2 && avail(x, date) && !dd.includes(x.id))); return `${c[0].id}|${date}:h${i}`; });
   }
 
-  const KIKI = { D, BY, CATS, LV, seedOf, rng, shuffle, make, dailyTags, hardTags, ofCat, share };
+  const KIKI = { D, BY, CATS, LV, seedOf, rng, shuffle, make, dailyTags, hardTags, ofCat, share, avail, tagDate };
   if (typeof module !== "undefined" && module.exports) module.exports = KIKI; else root.KIKI = KIKI;
 })(typeof self !== "undefined" ? self : this);

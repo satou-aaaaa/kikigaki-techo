@@ -355,14 +355,14 @@ const listOf = (mode, date) => (mode === "h" ? G.hardTags(date) : G.dailyTags(da
 const rid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const rshuffle = (a) => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 function endlessList(avoid) {
-  const s = rid(), ids = [0, 1, 2].flatMap((lv) => rshuffle(G.D.filter((x) => x.lv === lv).map((x) => x.id)));
+  const k = todayKey(), s = k + "~" + rid(), ids = [0, 1, 2].flatMap((lv) => rshuffle(G.D.filter((x) => x.lv === lv && G.avail(x, k)).map((x) => x.id)));
   if (avoid && ids[0] === avoid) ids.push(ids.shift());
   return ids.map((id, i) => `${id}|${s}:${i}`);
 }
 // 練習：まだ当てていない正体を先に、次に当てた数の少ないものから（同じ数の中は毎回ちがう順）
 function practiceList(s, cat) {
-  const pool = rshuffle(G.D.filter((x) => !cat || x.cat === cat)).sort((a, b) => (s.dex[a.id] || 0) - (s.dex[b.id] || 0));
-  const r = rid(); return pool.slice(0, 5).map((x, i) => `${x.id}|${r}:${i}`);
+  const k = todayKey(), pool = rshuffle(G.D.filter((x) => (!cat || x.cat === cat) && G.avail(x, k))).sort((a, b) => (s.dex[a.id] || 0) - (s.dex[b.id] || 0));
+  const r = k + "~" + rid(); return pool.slice(0, 5).map((x, i) => `${x.id}|${r}:${i}`);
 }
 const starsOf = (m) => (m === 0 ? 3 : m === 1 ? 2 : 1); // m = まちがい＋追加で聞いた手がかりの数
 const starStr = (s) => `<span class="stars" aria-label="星${s}つ">${"★".repeat(s)}<span class="off">${"☆".repeat(3 - s)}</span></span>`;
@@ -407,6 +407,7 @@ function load() {
   return tidy(s);
 }
 // 引き継ぎコードなどから入った値を正しい形に直す（数の所に文字が入っていても画面に出さない）
+const MODES = ["d", "h", "p", "e", "a"]; // 途中経過の mode はこの5つだけ（知らない mode の回は結果の画面で止まるので消す。2026-11-07 CodeRabbit）
 const num = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.floor(+v) : 0);
 function tidy(s) {
   s.ebest = num(s.ebest);
@@ -418,7 +419,7 @@ function tidy(s) {
   for (const b of [s.days, s.hdays, s.adays]) for (const d in b) if (!okDate(d) || !okRec(b[d])) delete b[d];
   for (const m in s.runs) {
     const r = s.runs[m]; if (r === null) continue;
-    if (typeof r !== "object" || !okDate(r.date) || !Array.isArray(r.list) || !r.list.every(okTag) || !Array.isArray(r.res) || !r.res.every((x) => x && typeof x === "object" && Number.isInteger(x.m) && x.m >= 0)) { delete s.runs[m]; continue; }
+    if (typeof r !== "object" || !MODES.includes(r.mode) || runKey(r.mode, r.date) !== m || !okDate(r.date) || !Array.isArray(r.list) || !r.list.every(okTag) || !Array.isArray(r.res) || !r.res.every((x) => x && typeof x === "object" && Number.isInteger(x.m) && x.m >= 0)) { delete s.runs[m]; continue; }
     if (r.cur != null && (typeof r.cur !== "object" || !Array.isArray(r.cur.wrong))) r.cur = null; else if (r.cur) r.cur.hints = Math.min(2, num(r.cur.hints));
   }
   return s;
@@ -562,7 +563,7 @@ function play() {
     </header>
     <div class="pad"><h2>聞き書き ${CATN[X.cat]}・${LV[X.lv]}</h2><ol class="clues" id="clues" aria-live="polite"></ol></div>
     <p class="ask" data-a11y-say>この正体は、どれ？</p>
-    <div class="choices" id="choices">${P.opts.map((id, j) => { const y = G.BY[id]; return `<button class="ch" data-j="${j}" aria-label="${esc(y.n)}">${esc(y.n)}<small>${esc(y.r)}</small></button>`; }).join("")}</div>
+    <div class="choices" id="choices">${P.opts.map((id, j) => { const y = G.BY[id]; return `<button class="ch" data-j="${j}" aria-label="${esc(y.n)}" data-a11y-say>${esc(y.n)}<small>${esc(y.r)}</small></button>`; }).join("")}</div>
     <p class="msg" id="msg" role="status" aria-live="polite"></p>
     ${hard ? "" : `<button class="sub" id="hint"></button>`}
     ${run.mode === "e" ? `<button class="sub" id="quit">ここで降りる（${i}問で終える）</button>` : ""}
@@ -570,7 +571,7 @@ function play() {
   $("back").onclick = home;
   document.querySelectorAll(".ch").forEach((b) => (b.onclick = () => choose(+b.dataset.j)));
   if ($("hint")) $("hint").onclick = hint;
-  if ($("quit")) $("quit").onclick = () => { if (cur && cur.done) return; finish(); };
+  if ($("quit")) $("quit").onclick = finish; // 当てた直後でも降りられる（2026-11-07 CodeRabbit）
   paint(-2); toTop();
 }
 function paint(fresh = -1) {
@@ -598,8 +599,11 @@ function choose(j) {
   }
   // 当たり
   cur.done = true; buzz([10, 40, 10]);
-  const m = missOf(), w = cur.wrong.length, st = starsOf(m), X = cur.P.x;
-  const s = save((s) => { const r = s.runs[MODE]; if (!same(r)) return; r.res.push({ m, w }); r.cur = null; s.dex[X.id] = (s.dex[X.id] || 0) + 1; });
+  const X = cur.P.x;
+  // 別のタブで聞き足した手がかり・選んだまちがいも数えてから★を決める（keep と同じ合わせ方。2026-11-07 CodeRabbit）
+  const s = save((s) => { const r = s.runs[MODE]; if (!same(r)) return; const was = r.cur && r.cur.i === cur.i && r.cur.tag === cur.tag ? r.cur : null; if (was) { cur.hints = Math.max(cur.hints, Math.min(2, was.hints || 0)); for (const v of was.wrong || []) if (!cur.wrong.includes(v) && cur.P.opts.includes(v) && v !== cur.P.id) cur.wrong.push(v); } r.res.push({ m: missOf(), w: cur.wrong.length }); r.cur = null; s.dex[X.id] = (s.dex[X.id] || 0) + 1; });
+  const st = starsOf(missOf());
+  if ($("quit")) $("quit").textContent = `ここで降りる（${cur.i + 1}問で終える）`;
   const r = s.runs[MODE], fin = r && r.mode !== "e" && r.res.length >= r.list.length, first = s.dex[X.id] === 1;
   document.querySelectorAll(".ch").forEach((b) => { b.disabled = true; if (cur.P.opts[+b.dataset.j] === X.id) b.classList.add("ok"); });
   paint(-(base() + cur.hints) - 2);
@@ -612,7 +616,7 @@ function choose(j) {
     ${first ? `<p class="achnew">📖 ききがき帳に書きとめました</p>` : ""}
     <button class="main ok" id="next">${fin ? "結果を見る" : "次の聞き書きへ"}</button></div>`;
   $("next").onclick = play;
-  setTimeout(() => { if ($("next") && cur && cur.done && cur.tag === cur.P.tag && cur.P.x === X) $("next").scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 60);
+  setTimeout(() => { if ($("next") && cur && cur.done && cur.tag === cur.P.tag && cur.P.x === X) $("next").scrollIntoView({ behavior: window.A11y && A11y.on("calm") ? "auto" : "smooth", block: "nearest" }); }, 60);
 }
 
 function finish() {
@@ -653,7 +657,9 @@ function untilNext() { const n = jstNow(), ms = 864e5 - (n.getTime() % 864e5); r
 function result(mode, k, first, prec, newAch = []) {
   const s = load(), rec = mode === "p" ? prec : bookOf(s, mode)[k];
   if (!rec) return home();
-  const list = mode === "p" ? prec.list : listOf(mode, k), total = rec.m.reduce((a, b) => a + b, 0), late = mode === "a", text = shareText(mode, k, rec);
+  // 結果は記録に残した正体（k）で出す（正体を足して作り方が変わっても、遊んだ問題のまま。k の無い古い記録だけ作り直す）
+  const keep5 = Array.isArray(rec.k) && rec.k.length === rec.m.length && rec.k.every((id) => Object.prototype.hasOwnProperty.call(G.BY, id));
+  const list = keep5 ? rec.k.map((id) => id + "|") : mode === "p" ? prec.list : listOf(mode, k), total = rec.m.reduce((a, b) => a + b, 0), late = mode === "a", text = shareText(mode, k, rec);
   const showKofi = first && mode !== "p" && !late && total === 0 && !s.kofi[k + mode]; // あとから・練習・まちがいのある日には出さない
   if (showKofi) save((s2) => { s2.kofi[k + mode] = 1; });
   app.innerHTML = `

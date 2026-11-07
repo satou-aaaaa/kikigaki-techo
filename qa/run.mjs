@@ -72,6 +72,26 @@ const addDay = (k, n) => new Date(Date.parse(k) + n * 864e5).toISOString().slice
   // 過去の日・先の日の問題が変わらない（データを足すときは最後に足す。shared-workflows game-dev.md F7）
   const snap = JSON.parse(readFileSync(path.join(root, "qa/daily-snapshot.json"), "utf8")), diff = Object.keys(snap).filter((k) => [...G.dailyTags(k), ...G.hardTags(k)].map((t) => t.split("|")[0]).join() !== snap[k]);
   check(`今日の5問・上級：qa/daily-snapshot.json の${Object.keys(snap).length}日分と同じ（データ・作り方を変えても過去の日が変わらない）`, diff.length === 0, diff.slice(0, 5).join(","));
+  // 始まりの日（2026-11-01）より前（端末の日付がずれているとき）も、となりの日と重ねない（2026-11-07 CodeRabbit：10/30 と 10/31 に同じ正体）
+  let back = 0; for (let i = 1; i < 400; i++) { const a = G.dailyTags(addDay("2026-11-01", -i)).map((t) => t.split("|")[0]), b = G.dailyTags(addDay("2026-11-01", -i + 1)).map((t) => t.split("|")[0]); if (b.some((x) => a.includes(x))) back++; }
+  check("今日の5問：始まりの日より前の400日も、となりの日と1つも重ならない", back === 0, back);
+  check("知らない id（constructor など）の問題は作らない", G.make("constructor|2026-11-07:d0") === null && G.make("toString|x") === null);
+  // 正体を足しても（from を付ける）、その日より前の問題・選び肢は変わらない（2026-11-07 CodeRabbit）
+  {
+    const FROM = "2027-02-01", src = readFileSync(path.join(root, "data.js"), "utf8");
+    const extra = ["y", "j", "w"].flatMap((cat) => [0, 1, 2].map((lv) => `{ id: "qa_${cat}${lv}", cat: "${cat}", lv: ${lv}, from: "${FROM}", e: "?", n: "QA${cat}${lv}", r: "きゅーえー", c: ["a", "b", "c"], why: "w", src: "s" },`)).join("\n");
+    const at = src.lastIndexOf("\n  ];"); const mod = { exports: {} };
+    new Function("module", "self", src.slice(0, at) + "\n" + extra + src.slice(at))(mod, undefined);
+    const H = mod.exports; let changed = [], used = 0, badNew = 0;
+    for (let i = 0; i < 365 * 3; i++) {
+      const k = addDay(EPOCH, i), a = [...G.dailyTags(k), ...G.hardTags(k)], b = [...H.dailyTags(k), ...H.hardTags(k)];
+      if (k < FROM) { if (a.join() !== b.join()) changed.push(k); for (const t of [...a, `kappa|${k}~qa:0`, `kappa|${k}~qa:1`]) if (G.make(t).opts.join() !== H.make(t).opts.join()) changed.push(t); }
+      else { if (b.some((t) => t.startsWith("qa_"))) used++; const d = H.dailyTags(k).map((t) => H.BY[t.split("|")[0]]); if (new Set(d.map((x) => x.id)).size !== 5 || d[4].lv !== 2) badNew++; }
+    }
+    for (const t of ["kappa|lz0qa:0", "amaterasu|abc:2"]) if (G.make(t).opts.join() !== H.make(t).opts.join()) changed.push(t); // 日付の無い古い名札
+    check(`正体を足しても（from ${FROM}）、その日より前の今日の5問・上級・選び肢は変わらない（3年分）`, changed.length === 0, changed.slice(0, 5).join(","));
+    check("足した正体は from の日から出てくる・5問の形は保つ", used > 0 && badNew === 0, { used, badNew });
+  }
 }
 
 // ---- 2. ファイルの中身 ----
@@ -244,15 +264,16 @@ try {
   check("とことん：並びを使い切る前に、新しい並びを足して続ける", (await p.evaluate(() => __kk.load().runs.e.list.length)) === G.D.length * 2 && await p.locator(".ch").count() === 4);
   await p.evaluate(() => __kk.save((s) => { const r = s.runs.e; r.res = [{ m: 0, w: 0 }, { m: 1, w: 0 }, { m: 3, w: 2 }]; r.cur = null; }));
   await p.click("#back"); await p.click("#go-e");
-  await p.click("#quit");
-  check("「ここで降りる」で終わり、まちがえずに当てた数を自己ベストに残す（2問）", (await mem(p)).ebest === 2 && (await p.textContent("#eres")).includes("3問") && !(await mem(p)).runs.e);
+  await solve(p); await p.click("#quit");
+  check("「ここで降りる」は当てた直後でも押せ、まちがえずに当てた数を自己ベストに残す（3問）", (await mem(p)).ebest === 3 && (await p.textContent("#eres")).includes("4問") && !(await mem(p)).runs.e);
   {
     // 引き継ぎコードなどで数の所に文字が入っても、画面に HTML として出さない
     const q = await newPage(); await closeHow(q);
-    await q.evaluate(() => { const s = JSON.parse(localStorage.getItem("kikigaki-v1")) || { v: 1 }; s.ebest = '<img id="xss" src=x>'; s.dex = { kappa: '"><b id="xss2">', nothing: 3 }; s.runs = { h: { list: "bad", res: [] }, p: { mode: "p", id: "y", date: "2026-11-07", list: ["constructor|1"], res: [] }, d: { mode: "d", id: "z", date: "x", list: ["kappa|1"], res: [] }, a3: { mode: "a", id: "a3", date: "2026-11-07", list: ["kappa|1", "oni|2"], res: [{ m: 0 }], cur: { i: 1, tag: "oni|2", wrong: "x", hints: 0 } } }; s.days = { "2026-11-08": { m: "x" }, bad: { m: [0] }, "2026-02-30": { m: [0] } }; localStorage.setItem("kikigaki-v1", JSON.stringify(s)); });
+    await q.evaluate(() => { const s = JSON.parse(localStorage.getItem("kikigaki-v1")) || { v: 1 }; s.ebest = '<img id="xss" src=x>'; s.dex = { kappa: '"><b id="xss2">', nothing: 3 }; s.runs = { h: { list: "bad", res: [] }, p: { mode: "p", id: "y", date: "2026-11-07", list: ["constructor|1"], res: [] }, d: { mode: "d", id: "z", date: "x", list: ["kappa|1"], res: [] }, "a:2026-11-07": { mode: "a", id: "a3", date: "2026-11-07", list: ["kappa|1", "oni|2"], res: [{ m: 0 }], cur: { i: 1, tag: "oni|2", wrong: "x", hints: 0 } }, e: { mode: "x", id: "q", date: "2026-11-07", list: [], res: [] }, a9: { mode: "a", id: "a9", date: "2026-11-06", list: ["kappa|1"], res: [] } }; s.days = { "2026-11-08": { m: "x" }, bad: { m: [0] }, "2026-02-30": { m: [0] } }; localStorage.setItem("kikigaki-v1", JSON.stringify(s)); });
     await q.reload(); await q.waitForTimeout(250);
     const st = await q.evaluate(() => __kk.load());
-    check("記録の形を直す：数の所の文字は0に・知らない正体と形のちがう途中経過・日ごとの記録は捨てる", st.ebest === 0 && st.dex.kappa === 0 && !("nothing" in st.dex) && !("h" in st.runs) && !("p" in st.runs) && !("d" in st.runs) && st.runs.a3 && st.runs.a3.cur === null && Object.keys(st.days).length === 0);
+    check("記録の形を直す：数の所の文字は0に・知らない正体と形のちがう途中経過・日ごとの記録は捨てる", st.ebest === 0 && st.dex.kappa === 0 && !("nothing" in st.dex) && !("h" in st.runs) && !("p" in st.runs) && !("d" in st.runs) && !("e" in st.runs) && !("a9" in st.runs) && st.runs["a:2026-11-07"] && st.runs["a:2026-11-07"].cur === null && Object.keys(st.days).length === 0);
+    check("知らない mode の途中経過（引き継ぎコードなど）があっても、ホームが出る", await q.locator("#go-d").count() === 1);
     await q.click("#go-dex").catch(() => {}); await q.waitForTimeout(150);
     check("記録の文字を HTML として出さない", await q.locator("#xss, #xss2").count() === 0);
     await q.context().close();
@@ -315,6 +336,12 @@ try {
     await a.click("#hint"); await a.click("#hint");
     await b.click("#hint");
     check("別のタブで聞いた手がかりの数を減らさない", (await mem(a)).runs.d.cur.hints === 2);
+    // 別のタブで手がかりを聞き足したあと、古いタブで当てても、聞き足した分を★に数える（2026-11-07 CodeRabbit）
+    await b.click(`.ch[data-j="${await ansIdx(b)}"]`); await b.waitForTimeout(150);
+    await b.click("#next"); await a.goto(url); await a.waitForTimeout(150); await a.click("#go-d");
+    await a.click("#hint"); // a で聞き足したあと、b（まだ何もしていない画面）で当てる
+    await b.click(`.ch[data-j="${await ansIdx(b)}"]`); await b.waitForTimeout(150);
+    check("別のタブで聞き足した手がかりを、当てたときの★に数える", (await mem(a)).runs.d.res[2].m === 1, (await mem(a)).runs.d.res);
     await ctx.close();
   }
 
