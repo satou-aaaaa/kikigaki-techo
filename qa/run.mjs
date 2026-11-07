@@ -156,10 +156,23 @@ try {
     await p.context().close();
   }
 
+  // ---- 遊び方を Esc で閉じても、次から出ない（2026-11-07 okane-kihon で見つけた。shared-workflows #186）----
+  {
+    const p = await newPage();
+    const first = await p.locator("#howto[open]").count() === 1;
+    await p.keyboard.press("Escape");
+    const closed = await p.locator("#howto[open]").count() === 0;
+    const saved = await p.evaluate(() => __kk.load().tut === true);
+    await p.reload(); await p.waitForTimeout(300);
+    check("遊び方を Esc で閉じたあと、開き直しても遊び方が出ない", first && closed && saved && await p.locator("#howto[open]").count() === 0, { first, closed, saved });
+    await p.context().close();
+  }
+
   // ---- 4. ブラウザで遊ぶ ----
   const p = await newPage();
   check("はじめて開くと遊び方が出る", await p.locator("#howto[open]").count() === 1);
   await p.click("#howto-ok");
+  check("「わかった」を押した直後に、遊び方を見た印が残っている（close を待たない）", await p.evaluate(() => __kk.load().tut === true));
   check("上級・とことん・練習は、はじめての日から押せる（鍵なし）", await p.locator("#go-h:not([disabled])").count() === 1 && await p.locator("#go-e:not([disabled])").count() === 1 && await p.locator("#go-p:not([disabled])").count() === 1);
   await p.click("#go-d");
   const tags = await p.evaluate(() => __kk.load().runs.d.list);
