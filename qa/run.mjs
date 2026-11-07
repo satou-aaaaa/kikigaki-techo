@@ -181,10 +181,12 @@ try {
     const p = await newPage();
     const first = await p.locator("#howto[open]").count() === 1;
     await p.keyboard.press("Escape");
-    const closed = await p.locator("#howto[open]").count() === 0;
+    // close は少し遅れて届く（CI の遅い機械では押した直後にまだ届いていない）ので、閉じて印が残るまで待つ
+    const closed = await p.waitForFunction(() => !document.querySelector("#howto[open]") && __kk.load().tut === true, null, { timeout: 3000 }).then(() => true, () => false);
     const saved = await p.evaluate(() => __kk.load().tut === true);
     await p.reload(); await p.waitForTimeout(300);
-    check("遊び方を Esc で閉じたあと、開き直しても遊び方が出ない", first && closed && saved && await p.locator("#howto[open]").count() === 0, { first, closed, saved });
+    const again = await p.locator("#howto[open]").count();
+    check("遊び方を Esc で閉じたあと、開き直しても遊び方が出ない", first && closed && saved && again === 0, JSON.stringify({ first, closed, saved, again }));
     await p.context().close();
   }
 
