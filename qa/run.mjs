@@ -176,18 +176,21 @@ try {
     await p.context().close();
   }
 
-  // ---- 遊び方を Esc で閉じても、次から出ない（2026-11-07 okane-kihon で見つけた。shared-workflows #186）----
+  // ---- 遊び方を Esc で閉じても、次から出ない（2026-11-07 okane-kihon で見つけた。shared-workflows #186・game-dev.md「遊び方」）----
+  // close は遅れて届くので、Esc を押したその場で届く cancel で印を残す。すぐ読み直しても出ないかを10回見る
   {
-    const p = await newPage();
-    const first = await p.locator("#howto[open]").count() === 1;
-    await p.keyboard.press("Escape");
-    // close は少し遅れて届く（CI の遅い機械では押した直後にまだ届いていない）ので、閉じて印が残るまで待つ
-    const closed = await p.waitForFunction(() => !document.querySelector("#howto[open]") && __kk.load().tut === true, null, { timeout: 3000 }).then(() => true, () => false);
-    const saved = await p.evaluate(() => __kk.load().tut === true);
-    await p.reload(); await p.waitForTimeout(300);
-    const again = await p.locator("#howto[open]").count();
-    check("遊び方を Esc で閉じたあと、開き直しても遊び方が出ない", first && closed && saved && again === 0, JSON.stringify({ first, closed, saved, again }));
-    await p.context().close();
+    const res = [];
+    for (let i = 0; i < 10; i++) {
+      const p = await newPage();
+      const first = await p.locator("#howto[open]").count() === 1;
+      await p.keyboard.press("Escape");
+      const saved = await p.evaluate(() => __kk.load().tut === true);
+      await p.reload(); await p.waitForTimeout(150);
+      const again = await p.locator("#howto[open]").count();
+      res.push({ first, saved, again });
+      await p.context().close();
+    }
+    check("遊び方を Esc で閉じてすぐ読み直しても、遊び方が出ない（10回）", res.every(r => r.first && r.saved && r.again === 0), JSON.stringify(res.filter(r => !(r.first && r.saved && r.again === 0))));
   }
 
   // ---- 4. ブラウザで遊ぶ ----
