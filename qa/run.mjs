@@ -273,6 +273,10 @@ try {
   await p.click("#back"); await p.click("#go-e");
   await solve(p); await p.click("#quit");
   check("「ここで降りる」は当てた直後でも押せ、まちがえずに当てた数を自己ベストに残す（3問）", (await mem(p)).ebest === 3 && (await p.textContent("#eres")).includes("4問") && !(await mem(p)).runs.e);
+  { const c = await browser.newContext({ viewport: { width: 390, height: 800 } }); await c.addInitScript(() => { window.__origSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error("full"); }; }); const q = await newPage(390, c); await closeHow(q); await q.click("#go-e"); await solve(q); await q.waitForTimeout(2000);
+    const warn = await q.locator("#savewarn").count(), txt = warn ? await q.textContent("#savewarn") : "";
+    await q.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; }); await q.click("#next"); await solve(q); await q.waitForTimeout(100);
+    check("保存できないと帯 #savewarn がちょうど1つ出て2秒たっても残り、保存できるようになって次の問題を解くと消える", warn === 1 && txt.includes("保存できませんでした") && await q.locator("#savewarn").count() === 0, `帯 ${warn}`); await c.close(); }
   {
     // 引き継ぎコードなどで数の所に文字が入っても、画面に HTML として出さない
     const q = await newPage(); await closeHow(q);
