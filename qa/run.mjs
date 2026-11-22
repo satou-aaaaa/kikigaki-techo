@@ -16,6 +16,7 @@ import { checkDepth } from "./depth-check.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const results = [];
 const check = (name, ok, detail = "") => results.push({ name, ok: !!ok, detail: String(detail).slice(0, 400) });
+const firstClose = async (q) => { if (await q.locator("#howto[open]").count()) await q.click("#howto-ok"); if (await q.locator("#core-coach").count()) { await q.evaluate(() => Core.coach.leave()); await q.waitForTimeout(100); } }; // はじめての練習の吹き出しをやめてホームへ（sync-template の migrateFirstQa が足した）
 const G = createRequire(import.meta.url)(path.join(root, "data.js"));
 const EPOCH = "2026-11-07";
 const addDay = (k, n) => new Date(Date.parse(k) + n * 864e5).toISOString().slice(0, 10);
@@ -142,7 +143,7 @@ async function newPage(w = 390, ctx) {
   await p.goto(url); await p.waitForTimeout(200);
   return p;
 }
-const closeHow = async (p) => { if (await p.locator("#howto[open]").count()) await p.click("#howto-ok"); };
+const closeHow = async (p) => { await firstClose(p); };
 const ansIdx = (p) => p.evaluate(() => { const c = __kk.cur(); return c.P.opts.indexOf(c.P.id); });
 const wrongIdx = (p) => p.evaluate(() => { const c = __kk.cur(); return c.P.opts.findIndex((o) => o !== c.P.id && !c.wrong.includes(o)); });
 const mem = (p) => p.evaluate(() => JSON.parse(localStorage.getItem("kikigaki-v1") || "{}"));
@@ -185,7 +186,7 @@ try {
     const res = [];
     for (let i = 0; i < 10; i++) {
       const p = await newPage();
-      const first = await p.locator("#howto[open]").count() === 1;
+      const first = await p.locator("#core-coach").count() === 1;
       await p.keyboard.press("Escape");
       const saved = await p.evaluate(() => __kk.load().tut === true);
       await p.reload(); await p.waitForTimeout(150);
@@ -198,8 +199,8 @@ try {
 
   // ---- 4. ブラウザで遊ぶ ----
   const p = await newPage();
-  check("はじめて開くと遊び方が出る", await p.locator("#howto[open]").count() === 1);
-  await p.click("#howto-ok");
+  check("はじめて開くと遊び方が出る", await p.locator("#core-coach").count() === 1);
+  await firstClose(p);
   check("「わかった」を押した直後に、遊び方を見た印が残っている（close を待たない）", await p.evaluate(() => __kk.load().tut === true));
   check("上級・とことん・練習は、はじめての日から押せる（鍵なし）", await p.locator("#go-h:not([disabled])").count() === 1 && await p.locator("#go-e:not([disabled])").count() === 1 && await p.locator("#go-p:not([disabled])").count() === 1);
   await p.click("#go-d");
@@ -466,7 +467,7 @@ try {
 // 引き継ぎコード（shared-workflows template/qa/transfer-check.mjs）
 try {
   const sample = { "kikigaki-v1": JSON.stringify({ v: 1, tut: true, days: { "2026-11-07": { m: [0, 1, 0, 0, 2], k: ["yukionna", "izanagi", "icarus", "fenrir", "theseus"] } }, hdays: {}, adays: {}, dex: { yukionna: 1, izanagi: 1, icarus: 1, fenrir: 1, theseus: 1 }, runs: {}, kofi: {}, ach: {}, ebest: 7, t: 1 }), "kikigaki-depth": JSON.stringify({ v: 1, rv: { "kappa|2026-11-07~x:0": { s: 1, due: "2026-11-20", t: 5 } } }) }; // 復習の記録も引き継ぐかを見る
-  await checkTransfer({ browser, url, game: "kikigaki-techo", sample, check, open: async (pg) => { if (await pg.locator("#howto[open]").count()) await pg.click("#howto-ok"); } });
+  await checkTransfer({ browser, url, game: "kikigaki-techo", sample, check, open: async (pg) => { await firstClose(pg); } });
 } catch (e) { check("引き継ぎの検査が最後まで動く", false, e.message.split("\n")[0]); }
   { const c = await browser.newContext(); const r = await c.newPage(); const big = []; // 題が h1{flex:1} で縦に伸び（伸びない形と比べて4pxより高ければ失敗）、iPad の縦で大きなすき間が出た（shared-workflows incidents/2026-11-07-title-stretched.md）
     for (const [w, h] of [[820, 1180], [390, 844], [1280, 800]]) { await r.setViewportSize({ width: w, height: h }); await r.goto(url); await r.waitForTimeout(200); await r.keyboard.press("Escape"); await r.waitForTimeout(100);
